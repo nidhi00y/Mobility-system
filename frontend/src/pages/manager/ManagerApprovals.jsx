@@ -71,7 +71,8 @@ export default function ManagerApprovals() {
       ) : requests.length === 0 ? (
         <div className="table-shell flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center"><span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#f2edf4] text-[#51245f]"><Inbox size={22} /></span><h2 className="font-semibold text-[#33333c]">No pending approvals</h2><p className="mt-1 text-sm text-[#777783]">You’re up to date on your team’s requests.</p></div>
       ) : (
-        <div className="table-shell overflow-x-auto"><table className="enterprise-table min-w-[900px]"><thead><tr><th>Employee</th><th>Journey</th><th>Date & time</th><th>Purpose</th><th>Decision</th></tr></thead>
+        <>
+        <div className="table-shell hidden overflow-x-auto lg:block"><table className="enterprise-table min-w-[900px]"><thead><tr><th>Employee</th><th>Journey</th><th>Date & time</th><th>Purpose</th><th>Decision</th></tr></thead>
           <tbody>{requests.map((request) => (
             <tr key={request.id}>
               <td><p className="font-semibold text-[#34343d]">{request.employee_name}</p><p className="mt-1 text-xs text-[#777783]">{request.employee_email}</p></td>
@@ -82,6 +83,25 @@ export default function ManagerApprovals() {
             </tr>
           ))}</tbody>
         </table></div>
+        <div className="space-y-3 lg:hidden">
+          {requests.map((request) => (
+            <article key={request.id} className="rounded-xl border border-[#e3e4e8] bg-white p-4 shadow-[0_1px_2px_rgba(20,20,30,0.04)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0"><h2 className="font-semibold text-[#33333c]">{request.employee_name}</h2><p className="mt-0.5 break-all text-xs text-[#777783]">{request.employee_email}</p></div>
+                <span className="status-badge status-pending shrink-0">Pending review</span>
+              </div>
+              <p className="mt-4 text-sm font-medium text-[#44444e]">{request.pickup_location} <span className="text-[#9696a0]">to</span> {request.destination}</p>
+              <p className="mt-1 text-xs text-[#777783]">{String(request.travel_date).slice(0, 10)} · {request.pickup_time}</p>
+              <p className="mt-3 border-t border-[#ececf0] pt-3 text-sm leading-5 text-[#555560]">{request.purpose}</p>
+              <label className="mt-3 block"><span className="sr-only">Rejection reason for {request.employee_name}</span><input className="input" placeholder="Reason to reject" value={reasons[request.id] || ''} onChange={(event) => setReasons({ ...reasons, [request.id]: event.target.value })} /></label>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button className="btn-primary w-full" onClick={() => approve(request.id)} disabled={busyId === request.id}><Check size={16} />{busyId === request.id ? 'Approving…' : 'Approve'}</button>
+                <button className="btn-secondary w-full" onClick={() => reject(request.id)} disabled={busyId === request.id}><X size={16} />{busyId === request.id ? 'Working…' : 'Reject'}</button>
+              </div>
+            </article>
+          ))}
+        </div>
+        </>
       )}
     </DashboardLayout>
   );
