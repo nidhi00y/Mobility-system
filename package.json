@@ -1,0 +1,14 @@
+{
+  "name": "car-appointment-system",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "generate-qr": "node qr-generator.js",
+    "backend:install": "cd backend && npm install",
+    "frontend:install": "cd frontend && npm install",
+    "install:all": "npm install && npm run backend:install && npm run frontend:install"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}
