@@ -1,5 +1,5 @@
 const pool = require('../db/pool');
-const { sendEmail } = require('../services/emailService');
+const { sendEmailInBackground } = require('../services/emailService');
 
 function validateRequestIds(requestIds, minimum = 2) {
   return Array.isArray(requestIds) &&
@@ -46,29 +46,24 @@ async function approveRequests(client, requests, approverId, status) {
   }
 }
 
-async function sendConfirmationEmails(requests, pooled) {
-  const results = [];
+function sendConfirmationEmails(requests, pooled) {
+  let queued = 0;
   for (const request of requests) {
-    try {
-      const result = await sendEmail({
-        to: request.employee_email,
-        subject: pooled ? 'Your carpool request is confirmed' : 'Your car request is approved',
-        text: pooled
-          ? `Hello ${request.employee_name},\n\nYour car request has been approved and confirmed as part of a shared carpool.\n\nDate: ${dateKey(request.travel_date)}\nPickup: ${request.pickup_location}\nPickup Time: ${request.pickup_time}\nDestination: ${request.destination}\n\nRegards,\nMondelez Mobility Services`
-          : `Hello ${request.employee_name},\n\nYour car request has been approved for an individual car booking. It has not been pooled with other requests.\n\nDate: ${dateKey(request.travel_date)}\nPickup: ${request.pickup_location}\nPickup Time: ${request.pickup_time}\nDestination: ${request.destination}\n\nRegards,\nMondelez Mobility Services`,
-      });
-      results.push(result.skipped ? 'skipped' : 'sent');
-    } catch (error) {
-      console.error('Confirmation email error:', error);
-      results.push('failed');
-    }
+    queued += Number(sendEmailInBackground({
+      to: request.employee_email,
+      subject: pooled ? 'Your carpool request is confirmed' : 'Your car request is approved',
+      text: pooled
+        ? `Hello ${request.employee_name},\n\nYour car request has been approved and confirmed as part of a shared carpool.\n\nDate: ${dateKey(request.travel_date)}\nPickup: ${request.pickup_location}\nPickup Time: ${request.pickup_time}\nDestination: ${request.destination}\n\nRegards,\nMondelez Mobility Services`
+        : `Hello ${request.employee_name},\n\nYour car request has been approved for an individual car booking. It has not been pooled with other requests.\n\nDate: ${dateKey(request.travel_date)}\nPickup: ${request.pickup_location}\nPickup Time: ${request.pickup_time}\nDestination: ${request.destination}\n\nRegards,\nMondelez Mobility Services`,
+    }, pooled ? 'Pool confirmation' : 'Request confirmation'));
   }
 
   return {
     total: requests.length,
-    sent: results.filter((result) => result === 'sent').length,
-    skipped: results.filter((result) => result === 'skipped').length,
-    failed: results.filter((result) => result === 'failed').length,
+    queued,
+    sent: 0,
+    skipped: requests.length - queued,
+    failed: 0,
   };
 }
 
@@ -87,7 +82,7 @@ async function confirmRequestsSeparately(req, res, minimum = 2) {
     const requests = await getSelectedPendingRequests(client, requestIds);
     await approveRequests(client, requests, req.session.user.id, 'CONFIRMED');
     await client.query('COMMIT');
-    const emailNotifications = await sendConfirmationEmails(requests, false);
+    const emailNotifications = sendConfirmationEmails(requests, false);
     return res.json({ success: true, confirmed: requests.length, emailNotifications });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -134,7 +129,7 @@ async function confirmRequestsAsPool(req, res) {
     }
     await approveRequests(client, requests, req.session.user.id, 'CARPOOLED');
     await client.query('COMMIT');
-    const emailNotifications = await sendConfirmationEmails(requests, true);
+    const emailNotifications = sendConfirmationEmails(requests, true);
     return res.status(201).json({ success: true, pool: createdPool, confirmed: requests.length, emailNotifications });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -220,7 +215,7 @@ async function createCarPool(req, res) {
       [requestIds]
     );
 
-    const emailNotifications = await sendConfirmationEmails(requestDetails.rows, true);
+    const emailNotifications = sendConfirmationEmails(requestDetails.rows, true);
 
     return res.status(201).json({ success: true, pool: createdPool, members: requestDetails.rows, emailNotifications });
   } catch (error) {

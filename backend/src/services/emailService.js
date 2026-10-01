@@ -43,4 +43,28 @@ async function sendEmail({ to, subject, text }) {
   return { ok: true, skipped: false, accepted: result.accepted?.length ?? 1 };
 }
 
-module.exports = { sendEmail };
+function sendEmailInBackground(message, label = 'Notification') {
+  const isConfigured = process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASSWORD;
+  if (!isConfigured) {
+    console.warn(`${label} email skipped: SMTP is not configured.`);
+    return false;
+  }
+
+  setImmediate(() => {
+    sendEmail(message)
+      .then((result) => {
+        if (result.skipped) {
+          console.warn(`${label} email skipped: SMTP is not configured.`);
+        } else {
+          console.info(`${label} email accepted by SMTP.`);
+        }
+      })
+      .catch((error) => {
+        console.error(`${label} email failed:`, error.code || 'UNKNOWN', error.responseCode || '');
+      });
+  });
+
+  return true;
+}
+
+module.exports = { sendEmail, sendEmailInBackground };

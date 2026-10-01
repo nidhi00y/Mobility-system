@@ -154,7 +154,7 @@ export default function HrAnalytics() {
       <section>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <div><h2 className="text-base font-semibold text-[#33333c]">Request activity by employee</h2><p className="mt-1 text-sm text-[#777783]">Booking and decision counts grouped by employee ID.</p></div>
-          <label className="relative w-full sm:w-72"><span className="sr-only">Search by employee ID or name</span><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#858590]" /><input className="input pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employee ID or name" /></label>
+          <label className="relative w-full sm:w-72"><span className="sr-only">Search by employee ID or name</span><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#858590]" /><input className="input input-leading-icon" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employee ID or name" /></label>
         </div>
         {isLoading ? (
           <div className="table-shell space-y-3 p-4" aria-label="Loading employee analytics">{[0, 1, 2, 3].map((row) => <div key={row} className="skeleton h-12 rounded-lg" />)}</div>

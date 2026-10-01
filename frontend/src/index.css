@@ -82,6 +82,10 @@ textarea:focus-visible {
   color: var(--ink);
 }
 
+.input-leading-icon {
+  padding-left: 2.5rem;
+}
+
 .input:hover {
   border-color: #aaaab5;
 }

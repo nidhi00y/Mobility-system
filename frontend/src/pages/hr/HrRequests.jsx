@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Clock3, Inbox, MapPin, Search, UsersRound, X } from 'lucide-react';
+import { Check, CheckCircle2, Clock3, Inbox, MapPin, Search, UsersRound, X } from 'lucide-react';
 import api from '../../services/api';
 import DashboardLayout from '../../components/DashboardLayout';
 
@@ -8,7 +8,7 @@ export default function HrRequests({ view = 'all' }) {
   const [reasons, setReasons] = useState({});
   const [selected, setSelected] = useState([]);
   const [confirmingAction, setConfirmingAction] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(() => sessionStorage.getItem('hrRequestFeedback') || '');
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
@@ -41,10 +41,13 @@ export default function HrRequests({ view = 'all' }) {
       setMessage('Enter a rejection reason before rejecting this request.');
       return;
     }
+    sessionStorage.removeItem('hrRequestFeedback');
     try {
       const response = await api.patch(`/hr/requests/${id}/reject`, { rejection_reason: rejectionReason });
       setReasons((current) => ({ ...current, [id]: '' }));
-      setMessage(response.data.message || 'Request rejected.');
+      const successMessage = response.data.message || 'Request rejected.';
+      setMessage(successMessage);
+      sessionStorage.setItem('hrRequestFeedback', successMessage);
       await loadRequests();
     } catch {
       setMessage('Unable to reject this request. Please try again.');
@@ -63,6 +66,7 @@ export default function HrRequests({ view = 'all' }) {
 
     setConfirmingAction(action === 'single' ? `request:${requestId}` : action);
     setMessage('');
+    sessionStorage.removeItem('hrRequestFeedback');
     try {
       const endpoint = action === 'single'
         ? `/hr/requests/${requestId}/confirm`
@@ -71,7 +75,14 @@ export default function HrRequests({ view = 'all' }) {
       await loadRequests();
       if (action === 'single') {
         setSelected((current) => current.filter((id) => id !== requestId));
-        setMessage('Request confirmed.');
+        const notification = response.data.emailNotifications;
+        const successMessage = notification?.queued
+          ? 'Request confirmed. The requester confirmation email is queued.'
+          : notification?.skipped
+            ? 'Request confirmed, but email is not configured.'
+            : 'Request confirmed.';
+        setMessage(successMessage);
+        sessionStorage.setItem('hrRequestFeedback', successMessage);
       } else {
         setSelected([]);
         const confirmationMessage = action === 'pool'
@@ -82,8 +93,11 @@ export default function HrRequests({ view = 'all' }) {
           ? ` Email notifications were skipped for ${delivery.skipped} request${delivery.skipped === 1 ? '' : 's'} because SMTP is not configured.`
           : delivery?.failed
             ? ` Email sent to ${delivery.sent} of ${delivery.total} requesters; ${delivery.failed} email${delivery.failed === 1 ? '' : 's'} failed.`
-            : '';
+            : delivery?.queued
+              ? ` Confirmation email queued for ${delivery.queued} request${delivery.queued === 1 ? '' : 's'}.`
+              : '';
         setMessage(confirmationMessage + deliveryMessage);
+        sessionStorage.setItem('hrRequestFeedback', confirmationMessage + deliveryMessage);
       }
       setConfirmDialog(null);
     } catch (error) {
@@ -170,12 +184,12 @@ export default function HrRequests({ view = 'all' }) {
         </p>
         <span className="text-sm text-[#777783]">{displayedRequests.length} {displayedRequests.length === 1 ? 'request' : 'requests'}</span>
       </div>
-      {message && <div role="status" className="mb-4 rounded-lg border border-[#d9e7de] bg-[#f0f8f2] px-4 py-3 text-sm text-[#236343]">{message}</div>}
+      {message && <div role="status" className="mb-4 flex items-center gap-2 rounded-lg border border-[#d9e7de] bg-[#f0f8f2] px-4 py-3 text-sm text-[#236343]"><CheckCircle2 size={17} className="shrink-0" /><span className="flex-1">{message}</span><button type="button" aria-label="Dismiss status message" className="rounded p-1 hover:bg-[#e4f1e8]" onClick={() => { setMessage(''); sessionStorage.removeItem('hrRequestFeedback'); }}><X size={16} /></button></div>}
       <section aria-label="Request filters" className="mb-4 grid gap-3 rounded-xl border border-[#e3e4e8] bg-white p-4 md:grid-cols-2 xl:grid-cols-5">
         <label className="relative md:col-span-2 xl:col-span-1">
           <span className="sr-only">Search requests</span>
           <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#858590]" />
-          <input className="input pl-9" placeholder="Search people or trips" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} />
+          <input className="input input-leading-icon" placeholder="Search people or trips" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} />
         </label>
         <select className="input" aria-label="Filter by department" value={filters.department} onChange={(event) => updateFilter('department', event.target.value)}>
           <option value="">All departments</option>
@@ -206,7 +220,8 @@ export default function HrRequests({ view = 'all' }) {
           <p className="mt-1 max-w-sm text-sm text-[#777783]">{view === 'pending' && requests.every((request) => request.status !== 'PENDING_HR_APPROVAL') ? 'All current carpool requests have been processed.' : 'Try changing or clearing your filters.'}</p>
         </div>
       ) : (
-      <div className="table-shell">
+      <>
+      <div className={view === 'pending' ? 'table-shell hidden lg:block' : 'table-shell'}>
         <div className="overflow-x-auto">
           <table className="enterprise-table min-w-[980px]">
             <thead>
@@ -286,6 +301,46 @@ export default function HrRequests({ view = 'all' }) {
           </table>
         </div>
       </div>
+      {view === 'pending' && (
+        <div className="space-y-3 lg:hidden">
+          {displayedRequests.map((request) => (
+            <article key={request.id} className={`rounded-xl border border-[#e3e4e8] bg-white p-4 shadow-[0_1px_2px_rgba(20,20,30,0.04)] ${selected.includes(request.id) ? 'ring-1 ring-[#d4c4da]' : ''}`}>
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-5 w-5 shrink-0 accent-[#51245f]"
+                  aria-label={`Select ${request.employee_name}'s pending request`}
+                  checked={selected.includes(request.id)}
+                  onChange={() => toggleRequest(request)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold text-[#33333c]">{request.employee_name}</p>
+                    <span className={statusClass(request.status)}>{displayStatus(request.status)}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-[#777783]">{request.employee_id || 'Employee ID unavailable'}{request.department ? ` · ${request.department}` : ''}</p>
+                  <p className="mt-3 text-sm text-[#44444e]">{request.pickup_location} <span className="text-[#9696a0]">to</span> {request.destination}</p>
+                  <p className="mt-1 text-xs text-[#777783]">{String(request.travel_date).slice(0, 10)} · {request.pickup_time}</p>
+                  <label className="mt-3 block">
+                    <span className="sr-only">Rejection reason for {request.employee_name}</span>
+                    <input
+                      className="input min-h-9"
+                      placeholder="Reason to reject"
+                      value={reasons[request.id] || ''}
+                      onChange={(event) => setReasons({ ...reasons, [request.id]: event.target.value })}
+                    />
+                  </label>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button className="btn-primary w-full" onClick={() => openConfirmation('single', request.id)} disabled={Boolean(confirmingAction)}>Confirm</button>
+                    <button className="btn-secondary w-full" onClick={() => reject(request.id)} disabled={Boolean(confirmingAction)}>Reject</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      </>
       )}
       {view === 'pending' && (
         <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e3e4e8] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(31,31,40,0.08)]">

@@ -1,11 +1,12 @@
 const pool = require('../db/pool');
-const { sendEmail } = require('../services/emailService');
+const { sendEmailInBackground } = require('../services/emailService');
 
 async function createRequest(req, res) {
-  const { travel_date, pickup_location, destination, pickup_time, passenger_count, purpose } = req.body;
+  const { travel_date, pickup_location, destination, pickup_time, purpose } = req.body;
+  const passengerCount = 1;
   const userId = req.session.user.id;
 
-  if (!travel_date || !pickup_location || !destination || !pickup_time || !passenger_count || !purpose) {
+  if (!travel_date || !pickup_location || !destination || !pickup_time || !purpose) {
     return res.status(400).json({ success: false, message: 'Missing required fields.' });
   }
 
@@ -19,7 +20,7 @@ async function createRequest(req, res) {
       `INSERT INTO cab_requests (user_id, travel_date, pickup_location, destination, pickup_time, passenger_count, purpose, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [userId, travel_date, pickup_location, destination, pickup_time, passenger_count, purpose, initialStatus]
+      [userId, travel_date, pickup_location, destination, pickup_time, passengerCount, purpose, initialStatus]
     );
 
     const request = requestResult.rows[0];
@@ -30,25 +31,6 @@ async function createRequest(req, res) {
          VALUES ($1, $2, 'HR', 'PENDING')`,
         [request.id, userId]
       );
-
-      const hrUsers = await pool.query('SELECT email, name FROM users WHERE role = $1 AND is_active = true', ['HR']);
-      for (const hr of hrUsers.rows) {
-        await sendEmail({
-          to: hr.email,
-          subject: 'Manager request requires HR approval',
-          text: `Hello ${hr.name},\n\nA manager request is pending HR approval.\n\nEmployee: ${user.name}\nDate: ${travel_date}\nDestination: ${destination}\nPickup Time: ${pickup_time}\n\nRegards,\nCar Appointment System`,
-        });
-      }
-    } else {
-      const managerResult = await pool.query('SELECT * FROM users WHERE id = $1', [user.manager_id]);
-      const manager = managerResult.rows[0];
-      if (manager) {
-        await sendEmail({
-          to: manager.email,
-          subject: 'Car request requires approval',
-          text: `Hello ${manager.name},\n\nA car request requires your approval.\n\nEmployee: ${user.name}\nDate: ${travel_date}\nPickup: ${pickup_location}\nDestination: ${destination}\nPickup Time: ${pickup_time}\nPurpose: ${purpose}\n\nRegards,\nCar Appointment System`,
-        });
-      }
     }
 
     return res.status(201).json({ success: true, request });
@@ -139,9 +121,6 @@ async function managerApprove(req, res) {
 
     if (!request) return res.status(404).json({ success: false, message: 'Request not found.' });
 
-    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [request.user_id]);
-    const user = userResult.rows[0];
-
     if (request.status !== 'PENDING_MANAGER_APPROVAL') {
       return res.status(400).json({ success: false, message: 'This request is not pending manager approval.' });
     }
@@ -155,16 +134,7 @@ async function managerApprove(req, res) {
     const updateStatus = 'PENDING_HR_APPROVAL';
     await pool.query('UPDATE cab_requests SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [updateStatus, id]);
 
-    const hrUsers = await pool.query('SELECT email, name FROM users WHERE role = $1 AND is_active = true', ['HR']);
-    for (const hr of hrUsers.rows) {
-      await sendEmail({
-        to: hr.email,
-        subject: 'Employee request is pending HR approval',
-        text: `Hello ${hr.name},\n\nAn employee request has been approved by the manager and is now pending HR approval.\n\nEmployee: ${user.name}\nDate: ${request.travel_date}\nPickup: ${request.pickup_location}\nDestination: ${request.destination}\n\nRegards,\nCar Appointment System`,
-      });
-    }
-
-    return res.json({ success: true, message: 'Request approved by manager.' });
+    return res.json({ success: true, message: 'Request approved and forwarded to HR.' });
   } catch (error) {
     console.error('Manager approve error:', error);
     return res.status(500).json({ success: false, message: 'Unable to approve request.' });
@@ -185,9 +155,6 @@ async function managerReject(req, res) {
     const request = requestResult.rows[0];
     if (!request) return res.status(404).json({ success: false, message: 'Request not found.' });
 
-    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [request.user_id]);
-    const user = userResult.rows[0];
-
     await pool.query(
       `INSERT INTO approvals (request_id, approver_id, approval_type, status, rejection_reason)
        VALUES ($1, $2, 'MANAGER', 'REJECTED', $3)`,
@@ -196,23 +163,7 @@ async function managerReject(req, res) {
 
     await pool.query('UPDATE cab_requests SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['REJECTED', id]);
 
-    let emailSent = false;
-    try {
-      const emailResult = await sendEmail({
-        to: user.email,
-        subject: 'Your car request was rejected',
-        text: `Hello ${user.name},\n\nYour car request was rejected by your manager.\n\nReason: ${reason}\n\nRegards,\nMondelez Mobility Services`,
-      });
-      emailSent = !emailResult.skipped;
-    } catch (error) {
-      console.error('Manager rejection email error:', error);
-    }
-
-    return res.json({
-      success: true,
-      emailSent,
-      message: emailSent ? 'Request rejected and requester notified.' : 'Request rejected, but the notification email could not be sent.',
-    });
+    return res.json({ success: true, message: 'Request rejected by manager.' });
   } catch (error) {
     console.error('Manager reject error:', error);
     return res.status(500).json({ success: false, message: 'Unable to reject request.' });
@@ -238,11 +189,11 @@ async function hrApprove(req, res) {
 
     await pool.query('UPDATE cab_requests SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['APPROVED', id]);
 
-    await sendEmail({
+    sendEmailInBackground({
       to: user.email,
       subject: 'Your car request is approved',
       text: `Hello ${user.name},\n\nYour car request has been approved by HR for an individual car booking. It has not been pooled with other requests.\n\nDate: ${request.travel_date}\nPickup: ${request.pickup_location}\nDestination: ${request.destination}\n\nRegards,\nMondelez Mobility Services`,
-    });
+    }, 'HR approval');
 
     return res.json({ success: true, message: 'Request approved by HR.' });
   } catch (error) {
@@ -276,22 +227,16 @@ async function hrReject(req, res) {
 
     await pool.query('UPDATE cab_requests SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['REJECTED', id]);
 
-    let emailSent = false;
-    try {
-      const emailResult = await sendEmail({
-        to: user.email,
-        subject: 'Your car request was rejected',
-        text: `Hello ${user.name},\n\nYour car request was rejected by HR.\n\nReason: ${reason}\n\nRegards,\nMondelez Mobility Services`,
-      });
-      emailSent = !emailResult.skipped;
-    } catch (error) {
-      console.error('HR rejection email error:', error);
-    }
+    const emailQueued = sendEmailInBackground({
+      to: user.email,
+      subject: 'Your car request was rejected',
+      text: `Hello ${user.name},\n\nYour car request was rejected by HR.\n\nReason: ${reason}\n\nRegards,\nMondelez Mobility Services`,
+    }, 'HR rejection');
 
     return res.json({
       success: true,
-      emailSent,
-      message: emailSent ? 'Request rejected and requester notified.' : 'Request rejected, but the notification email could not be sent.',
+      emailQueued,
+      message: emailQueued ? 'Request rejected. Notification queued.' : 'Request rejected, but email was not queued because SMTP is not configured.',
     });
   } catch (error) {
     console.error('HR reject error:', error);

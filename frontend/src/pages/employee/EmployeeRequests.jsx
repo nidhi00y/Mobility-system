@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, Inbox, MapPin } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Inbox, MapPin, X } from 'lucide-react';
 import api from '../../services/api';
 import DashboardLayout from '../../components/DashboardLayout';
 
 export default function EmployeeRequests() {
   const [requests, setRequests] = useState([]);
+  const [feedback, setFeedback] = useState(() => sessionStorage.getItem('employeeRequestFeedback') || '');
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
@@ -24,6 +25,7 @@ export default function EmployeeRequests() {
   return (
     <DashboardLayout role="EMPLOYEE" title="My Requests">
       <p className="page-intro mb-5">Track each submission and review its latest decision.</p>
+      {feedback && <div role="status" className="mb-4 flex items-center gap-2 rounded-lg border border-[#d9e7de] bg-[#f0f8f2] px-4 py-3 text-sm text-[#236343]"><CheckCircle2 size={17} className="shrink-0" /><span className="flex-1">{feedback}</span><button type="button" aria-label="Dismiss success message" className="rounded p-1 hover:bg-[#e4f1e8]" onClick={() => { setFeedback(''); sessionStorage.removeItem('employeeRequestFeedback'); }}><X size={16} /></button></div>}
       {hasError && <div role="alert" className="mb-4 rounded-lg border border-[#f0c9c6] bg-[#fff5f4] px-4 py-3 text-sm text-[#9f2f27]">Unable to load your requests. Please refresh and try again.</div>}
       {isLoading && (
         <div className="space-y-3" aria-label="Loading requests">{[0, 1, 2].map((row) => <div key={row} className="skeleton h-28 rounded-xl" />)}</div>
