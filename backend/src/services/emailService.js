@@ -25,6 +25,30 @@ function getSenderAddress() {
 }
 
 async function sendEmail({ to, subject, text }) {
+  if (process.env.RESEND_API_KEY) {
+    const from = (process.env.EMAIL_FROM || '').trim();
+    if (!from) {
+      throw new Error('EMAIL_FROM is required when RESEND_API_KEY is configured.');
+    }
+
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from, to: [to], subject, text }),
+    });
+
+    if (!response.ok) {
+      const error = new Error('Resend rejected the email request.');
+      error.code = `RESEND_${response.status}`;
+      throw error;
+    }
+
+    return { ok: true, skipped: false, accepted: 1, provider: 'Resend' };
+  }
+
   if (!process.env.EMAIL_HOST || !process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
     return { ok: true, skipped: true };
   }
@@ -44,7 +68,9 @@ async function sendEmail({ to, subject, text }) {
 }
 
 function sendEmailInBackground(message, label = 'Notification') {
-  const isConfigured = process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASSWORD;
+  const isConfigured = process.env.RESEND_API_KEY
+    ? Boolean(process.env.EMAIL_FROM)
+    : Boolean(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
   if (!isConfigured) {
     console.warn(`${label} email skipped: SMTP is not configured.`);
     return false;
@@ -54,9 +80,9 @@ function sendEmailInBackground(message, label = 'Notification') {
     sendEmail(message)
       .then((result) => {
         if (result.skipped) {
-          console.warn(`${label} email skipped: SMTP is not configured.`);
+          console.warn(`${label} email skipped: no email provider is configured.`);
         } else {
-          console.info(`${label} email accepted by SMTP.`);
+          console.info(`${label} email accepted by ${result.provider || 'SMTP'}.`);
         }
       })
       .catch((error) => {
